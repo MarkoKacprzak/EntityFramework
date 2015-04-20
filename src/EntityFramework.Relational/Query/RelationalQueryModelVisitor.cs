@@ -30,8 +30,6 @@ namespace Microsoft.Data.Entity.Relational.Query
         private readonly Dictionary<IQuerySource, SelectExpression> _queriesBySource
             = new Dictionary<IQuerySource, SelectExpression>();
 
-        private bool _requiresClientFilter;
-
         private RelationalProjectionExpressionTreeVisitor _projectionTreeVisitor;
 
         public RelationalQueryModelVisitor(
@@ -42,7 +40,7 @@ namespace Microsoft.Data.Entity.Relational.Query
             _parentQueryModelVisitor = parentQueryModelVisitor;
         }
 
-        public virtual bool RequiresClientFilter => _requiresClientFilter;
+        public virtual bool RequiresClientFilter { get; set; }
         public virtual bool RequiresClientProjection => _projectionTreeVisitor.RequiresClientEval;
 
         public new virtual RelationalQueryCompilationContext QueryCompilationContext
@@ -222,9 +220,9 @@ namespace Microsoft.Data.Entity.Relational.Query
         public override void VisitWhereClause(WhereClause whereClause, QueryModel queryModel, int index)
         {
             var selectExpression = TryGetQuery(queryModel.MainFromClause);
-            var requiresClientEval = selectExpression == null;
+            RequiresClientFilter |= selectExpression == null;
 
-            if (!requiresClientEval)
+            if (!RequiresClientFilter)
             {
                 var translatingVisitor = new SqlTranslatingExpressionTreeVisitor(this, whereClause.Predicate);
                 var sqlPredicateExpression = translatingVisitor.VisitExpression(whereClause.Predicate);
@@ -238,22 +236,20 @@ namespace Microsoft.Data.Entity.Relational.Query
                 }
                 else
                 {
-                    requiresClientEval = true;
+                    RequiresClientFilter = true;
                 }
 
                 if (translatingVisitor.ClientEvalPredicate != null)
                 {
-                    requiresClientEval = true;
+                    RequiresClientFilter = true;
                     whereClause = new WhereClause(translatingVisitor.ClientEvalPredicate);
                 }
             }
 
-            if (requiresClientEval)
+            if (RequiresClientFilter)
             {
                 base.VisitWhereClause(whereClause, queryModel, index);
             }
-
-            _requiresClientFilter |= requiresClientEval;
         }
 
         public override void VisitOrderByClause(OrderByClause orderByClause, QueryModel queryModel, int index)

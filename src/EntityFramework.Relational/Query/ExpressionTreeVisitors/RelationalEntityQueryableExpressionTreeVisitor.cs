@@ -8,8 +8,8 @@ using System.Linq;
 using System.Linq.Expressions;
 using JetBrains.Annotations;
 using Microsoft.Data.Entity.Query;
+using Microsoft.Data.Entity.Query.Annotations;
 using Microsoft.Data.Entity.Query.ExpressionTreeVisitors;
-using Microsoft.Data.Entity.Query.ResultOperators;
 using Microsoft.Data.Entity.Relational.Query.Annotations;
 using Microsoft.Data.Entity.Relational.Query.Expressions;
 using Microsoft.Data.Entity.Relational.Query.Sql;
@@ -104,6 +104,25 @@ namespace Microsoft.Data.Entity.Relational.Query.ExpressionTreeVisitors
                         alias,
                         _querySource));
 
+            var composed = true;
+            if (fromSqlAnnotation != null)
+            {
+                if (fromSqlAnnotation.QueryModel.IsIdentityQuery()
+                    && !fromSqlAnnotation.QueryModel.ResultOperators.Any())
+                {
+                    composed = false;
+                }
+                else if (fromSqlAnnotation.Sql.IndexOf("EXEC", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    if (QueryModelVisitor.QueryCompilationContext.QueryAnnotations.OfType<IncludeQueryAnnotation>().Any())
+                    {
+                        throw new InvalidOperationException();
+                    }
+                    QueryModelVisitor.RequiresClientFilter = true;
+                    composed = false;
+                }
+            }
+
             QueryModelVisitor.AddQuery(_querySource, selectExpression);
 
             var queryMethodArguments
@@ -155,24 +174,15 @@ namespace Microsoft.Data.Entity.Relational.Query.ExpressionTreeVisitors
                         });
             }
 
-            CommandBuilder commandBuilder = null;
-
-            if (fromSqlAnnotation != null
-                && fromSqlAnnotation.QueryModel.IsIdentityQuery()
-                && !fromSqlAnnotation.QueryModel.ResultOperators.Any())
-            {
-                commandBuilder = new CommandBuilder(new RawSqlQueryGenerator(fromSqlAnnotation.Sql, fromSqlAnnotation.Parameters));
-            }
-            else
-            {
-                commandBuilder = new CommandBuilder(QueryModelVisitor.QueryCompilationContext.CreateSqlQueryGenerator(selectExpression));
-            }
+            var sqlQueryGenerator = (composed)
+                ? QueryModelVisitor.QueryCompilationContext.CreateSqlQueryGenerator(selectExpression)
+                : new RawSqlQueryGenerator(fromSqlAnnotation.Sql, fromSqlAnnotation.Parameters);
 
             return Expression.Call(
                 QueryModelVisitor.QueryCompilationContext.QueryMethodProvider.QueryMethod
                     .MakeGenericMethod(queryMethodInfo.ReturnType),
                 EntityQueryModelVisitor.QueryContextParameter,
-                Expression.Constant(commandBuilder),
+                Expression.Constant(new CommandBuilder(sqlQueryGenerator)),
                 Expression.Lambda(
                     Expression.Call(queryMethodInfo, queryMethodArguments),
                     _readerParameter));

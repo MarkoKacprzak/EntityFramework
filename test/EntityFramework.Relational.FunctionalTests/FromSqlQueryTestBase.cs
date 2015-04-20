@@ -148,6 +148,24 @@ FROM Customers").Where(c => c.City == "London"),
         }
 
         [Fact]
+        public virtual void From_sql_queryable_stored_procedure()
+        {
+            AssertQuery<Product>(
+                cs => cs.FromSql("EXEC ProductsOnOrder"),
+                cs => cs.Where(p => p.UnitsOnOrder > 0),
+                entryCount: 17);
+        }
+
+        [Fact]
+        public virtual void From_sql_queryable_composed_stored_procedure()
+        {
+            AssertQuery<Product>(
+                cs => cs.FromSql(@"EXEC ProductsOnOrder").Where(p => p.UnitsInStock > 10),
+                cs => cs.Where(p => p.UnitsOnOrder > 0 && p.UnitsInStock > 10),
+                entryCount: 9);
+        }
+
+        [Fact]
         public virtual void From_sql_annotations_do_not_affect_successive_calls()
         {
             using (var context = CreateContext())
